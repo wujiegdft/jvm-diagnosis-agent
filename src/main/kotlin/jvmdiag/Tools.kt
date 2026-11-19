@@ -48,7 +48,43 @@ fun standardTools(logRoots: List<String>): List<Tool> {
             keep = Keep.TAIL,
             command = { listOf("tail", "-n", it.getValue("lines").toString(), "--", it.getValue("path") as String) },
         ),
+        Tool(
+            name = "jcmd_vm_flags",
+            description = "查看目标 JVM 启动与生效的 VM 参数(jcmd VM.flags),如 MaxHeapSize、GC 算法。",
+            risk = Risk.L0,
+            params = listOf(pid),
+            timeoutMs = 10_000,
+            command = { listOf("jcmd", it.getValue("pid").toString(), "VM.flags") },
+        ),
+        Tool(
+            name = "heap_histo",
+            description = "统计存活对象直方图(jmap -histo:live),按字节降序返回前 N 类与 Total。注意:会触发 Full GC,属于 L2 重操作需人工确认。",
+            risk = Risk.L2,
+            params = listOf(pid, IntParam("top_n", "返回占用最大的前 N 个类", min = 5, max = 100, default = 20)),
+            timeoutMs = 30_000,
+            command = { listOf("jmap", "-histo:live", it.getValue("pid").toString()) },
+            postProcess = { out, args -> formatHeapHisto(out, args.getValue("top_n") as Int) },
+        ),
     )
+}
+
+/** 保留 jmap -histo 表头 + 前 topN 个类 + 末尾 Total 汇总行。纯函数。 */
+fun formatHeapHisto(raw: String, topN: Int): String {
+    val lines = raw.lines().filter { it.isNotBlank() }
+    val sepIdx = lines.indexOfFirst { it.trim().startsWith("---") }
+    if (sepIdx < 0) return raw
+    val header = lines.take(sepIdx + 1)
+    val body = lines.drop(sepIdx + 1)
+    val totalLine = body.lastOrNull { it.trimStart().startsWith("Total") }
+    val classRows = body.filterNot { it.trimStart().startsWith("Total") }
+    val kept = classRows.take(topN)
+    val omitted = classRows.size - kept.size
+    return buildList {
+        addAll(header)
+        addAll(kept)
+        if (omitted > 0) add("... (省略其余 $omitted 个类)")
+        if (totalLine != null) add(totalLine)
+    }.joinToString("\n")
 }
 
 /** 保留 top 头部摘要 + 前 topN 个线程行,并给线程号追加十六进制 nid。纯函数。 */

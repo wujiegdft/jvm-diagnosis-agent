@@ -50,3 +50,33 @@ class JsonlTrace(private val file: Path) : Trace {
         )
     }
 }
+
+/** 一次诊断会话的汇总记录,供评估统计步数/token/耗时/终止原因。 */
+class JsonlSessionTrace(private val file: Path) {
+    private val mapper = ObjectMapper()
+
+    @Synchronized
+    fun record(prompt: String, model: String, result: AgentResult, tsMs: Long = System.currentTimeMillis()) {
+        file.parent?.let { Files.createDirectories(it) }
+        val row = mapOf(
+            "ts" to java.time.Instant.ofEpochMilli(tsMs).toString(),
+            "model" to model,
+            "prompt" to prompt,
+            "stopReason" to result.stopReason.name,
+            "steps" to result.steps,
+            "toolCalls" to result.toolCalls,
+            "duplicateBlocked" to result.duplicateBlocked,
+            "promptTokens" to result.promptTokens,
+            "completionTokens" to result.completionTokens,
+            "reasoningTokens" to result.reasoningTokens,
+            "totalTokens" to result.totalTokens,
+            "durationMs" to result.durationMs,
+            "answerSummary" to result.answer.take(300),
+        )
+        Files.writeString(
+            file,
+            mapper.writeValueAsString(row) + "\n",
+            StandardOpenOption.CREATE, StandardOpenOption.APPEND,
+        )
+    }
+}

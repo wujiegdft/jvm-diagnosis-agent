@@ -171,4 +171,35 @@ class DiagnosticToolsTest {
         assertEquals(listOf("path"), schema["required"])
         assertEquals(false, schema["additionalProperties"])
     }
+
+    @Test fun `heap_histo 属于 L2 且后处理保留前 N 行与末尾 Total`() {
+        val raw = """
+             num     #instances         #bytes  class name (module)
+            -------------------------------------------------------
+               1:          1000       50000000  [B (java.base@17)
+               2:          1000          32000  HeapLeak${'$'}OrderSnapshot
+               3:           500          16000  java.lang.String
+               4:           200           8000  java.lang.Object
+               5:           100           4000  [Ljava.lang.Object;
+               6:            50           2000  java.lang.Class
+            Total          2850       50062000
+        """.trimIndent()
+        exec.result = { ExecResult(0, raw, "") }
+        val r = tools(Limits(maxOutputChars = 4000)).call("heap_histo", mapOf("pid" to 99, "top_n" to 5))
+        assertTrue(r.ok)
+        assertEquals("heap_histo", approvals.single().tool)
+        assertEquals(Risk.L2, approvals.single().risk)
+        assertEquals(listOf("jmap", "-histo:live", "99"), exec.commands.single())
+        assertTrue("HeapLeak\$OrderSnapshot" in r.output)
+        assertFalse("java.lang.Class" in r.output)
+        assertTrue("省略其余 1 个类" in r.output)
+        assertTrue("Total" in r.output)
+    }
+
+    @Test fun `jcmd_vm_flags 属于 L0 且拼装正确 argv`() {
+        val r = tools().call("jcmd_vm_flags", mapOf("pid" to 4242))
+        assertTrue(r.ok)
+        assertTrue(approvals.isEmpty())
+        assertEquals(listOf("jcmd", "4242", "VM.flags"), exec.commands.single())
+    }
 }
